@@ -2,6 +2,7 @@ import { downloadFile } from './download.mjs';
 
 // Create require
 import { createRequire } from "module";
+import { runInNewContext } from 'vm';
 const require = createRequire(import.meta.url);
 
 const config = require('../config.json');
@@ -12,6 +13,7 @@ const { TokenCredentialAuthenticationProvider } = require("@microsoft/microsoft-
 const { ClientSecretCredential } = require("@azure/identity");
 require('isomorphic-fetch');
 const d = new Date();
+var year = d.getFullYear();
 
 const credential = new ClientSecretCredential(config.tenantId, config.clientId, config.clientSecret);
 const authProvider = new TokenCredentialAuthenticationProvider(credential, {
@@ -92,7 +94,6 @@ async function main() {
     }
 
     // Check if year folder exists
-    let year = d.getFullYear();
     let yearId = getItem(siteId, folderId, year);
     // If not
     if (yearId == null) {
@@ -117,6 +118,7 @@ async function main() {
         console.log('Error: No template file found in the Commission Reports folder');
         return;
     }
+
 
     // Checks if the config file exists in the folder
     let configId = await getItem(siteId, folderId, 'config.xlsx');
@@ -165,18 +167,81 @@ async function main() {
         return;
     }
 
-    // Load the billing submission form workbook
-    const billing = new Excel.Workbook();
-    await billing.xlsx.readFile('./temp/billing.xlsx');
-    const billingForm = billing.getWorksheet('Billing');
-
     // Create a new template for each person in the employee dictionary
     for (let key in employees) {
         const template = new Excel.Workbook();
         await template.xlsx.readFile('./temp/template.xlsx');
-        const templateCommissionSheet = template.getWorksheet('Commission');
-        const templateBillingSheet = template.getWorksheet('Billing');
+        employees[key].push(template);
+    }
+
+    // Load the billing submission form workbook
+    const billing = new Excel.Workbook();
+    await billing.xlsx.readFile('./temp/billing.xlsx');
+    const billingSheet = billing.getWorksheet('Billing');
+    // Remove unnecessary columns
+    // This should be done using tables but is too buggy to use
+    billingSheet.spliceColumns(3, 2);
+    billingSheet.spliceColumns(4, 1);
+    billingSheet.spliceColumns(6, 9);
+    billingSheet.spliceColumns(11, 1);
+    billingSheet.spliceColumns(16, 7);
+
+    billingSheet.eachRow(function (row, rowNumber) {
+        // Process all of the billing files
+        if (rowNumber != 1) {
+            let contents = row.values;
+            contents.shift();
+            addRow(contents[10], contents);
+            if (contents[11]) // If recruiter2
+                addRow(contents[11], contents);
+            if (contents[12] != 'None') // If researcher
+                addRow(contents[12], contents);
+        }
+    });
+
+    for (let key in employees) {
+        let length = employees[key].length;
+        employees[key][length - 1].xlsx.writeFile(`./temp/${key.replaceAll(' ', '_')}_Report.xlsx`);
     }
 }
 
 main();
+
+function addRow(employee, contents) {
+
+    let date = contents[1].toISOString().split('T')[0];
+    date = date.split('-');
+
+    if (date[0] == year) {
+        let length = employees[employee].length;
+        let billingSheet = employees[employee][length - 1].getWorksheet('Billing');
+        let commissionSheet = employees[employee][length - 1].getWorksheet('Commission');
+
+        let row = [`${date[1]}/${date[2]}/${date[0]}`];
+
+        // Add invoice number if exists
+        if (contents[15])
+            row.push(contents[15]);
+        else
+            row.push(null);
+
+        row.push(contents[3], contents[4], parseFloat(contents[7]));
+
+        // Logic to determine splits
+        let splitFee;
+        if (employees[employee][0]['Account Manager'])
+            splitFee = employees[employee][0]['Account Manager'];
+        else
+            splitFee = researcherCommission;
+
+        if (contents[11])
+            if (contents[11] == 'Split - Top Echelon Office')
+                row.push(contents[7] * .47 * splitFee);
+            else
+                row.push(contents[7] * .5 * splitFee);
+        else
+            row.push(contents[7] * splitFee)
+
+        billingSheet.addRow(row);
+    }
+}
