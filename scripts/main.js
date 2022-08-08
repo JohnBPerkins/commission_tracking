@@ -77,6 +77,11 @@ async function readConfig() {
 }
 
 async function main() {
+    fs.access('./temp', (error) => {
+        if (error)
+            fs.mkdirSync('./temp');
+    });
+
     let siteId = await client.api('/sites?search=metrics').get();
     siteId = siteId.value[0].id;
     let driveId = await client.api(`/sites/${siteId}/drives`).get();
