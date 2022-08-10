@@ -5,4 +5,5 @@ To use:
 
 1. Download and extract the zip file.
 2. Edit the config file to include the tenantId, clientId, and clientSecret.
-3. Run the run.bat file.
+3. (Optional) Run the install_node.bat file if NodeJS is not already installed on your pc.
+4. Run the run.bat file.
