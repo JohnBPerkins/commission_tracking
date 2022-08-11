@@ -280,8 +280,8 @@ async function main() {
     // This should be done using tables but is too buggy to use
     billingSheet.spliceColumns(3, 2);
     billingSheet.spliceColumns(4, 1);
-    billingSheet.spliceColumns(6, 9);
-    billingSheet.spliceColumns(11, 1);
+    billingSheet.spliceColumns(6, 8);
+    billingSheet.spliceColumns(10, 1);
     billingSheet.spliceColumns(16, 7);
 
     console.log('Filling spreadsheets...')
@@ -301,7 +301,8 @@ async function main() {
             for (let manager in ops) {
                 addRow(ops[manager], contents, 'Operations Manager');
             }
-        }
+        } else
+            console.log(row.values)
     });
 
     console.log('Uploading files...');
@@ -324,10 +325,11 @@ main();
 function addRow(employee, contents, role) {
 
     if (employees[employee]) {
-        let date = contents[1].toISOString().split('T')[0];
+        let date = contents[5].toISOString().split('T')[0];
         date = date.split('-');
 
         if (date[0] == year) {
+            console.log(contents)
             let length = employees[employee].length;
             let billingSheet = employees[employee][length - 1].getWorksheet('Billing');
 
@@ -336,17 +338,17 @@ function addRow(employee, contents, role) {
                 row.push(contents[15]);
             else
                 row.push(null);
-            row.push(contents[3], contents[4], parseFloat(contents[7]));
+            row.push(contents[3], contents[4], parseFloat(contents[8]) / contents[9]);
 
             // Logic to determine splits
             let splitFee, invoice;
             if (contents[11]) {
                 if (contents[11] == 'Split - Top Echelon Office')
-                    invoice = contents[7] * .47;
+                    invoice = contents[8] / contents[9] * .47;
                 else
-                    invoice = contents[7] * .5;
+                    invoice = contents[8] / contents[9] * .5;
             } else
-                invoice = contents[7];
+                invoice = contents[8] / contents[9];
 
             switch (role) {
                 case 'Account Manager':
@@ -356,6 +358,10 @@ function addRow(employee, contents, role) {
                         splitFee = employees[employee][0]['Account Manager'];
                     row.push(invoice * 1);
                     row.push(invoice * splitFee);
+                    if (employees[employee][0]['Researcher']) {
+                        row.push(0);
+                        row.push(0);
+                    }
                     break;
                 case 'Operations Manager':
                     splitFee = employees[employee][0]['Operations Manager'];
@@ -376,6 +382,11 @@ function addRow(employee, contents, role) {
                     break;
                 default:
                     console.log('Error: Invalid role');
+            }
+
+            if (contents[16]) {
+                row.push(null);
+                row.push(contents[16]);
             }
 
             billingSheet.addRow(row);
