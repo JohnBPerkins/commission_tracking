@@ -301,8 +301,7 @@ async function main() {
             for (let manager in ops) {
                 addRow(ops[manager], contents, 'Operations Manager');
             }
-        } else
-            console.log(row.values)
+        }
     });
 
     console.log('Uploading files...');
@@ -329,7 +328,6 @@ function addRow(employee, contents, role) {
         date = date.split('-');
 
         if (date[0] == year) {
-            console.log(contents)
             let length = employees[employee].length;
             let billingSheet = employees[employee][length - 1].getWorksheet('Billing');
 
