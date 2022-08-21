@@ -306,20 +306,37 @@ async function main() {
 
     console.log('Uploading files...');
     for (let key in employees) {
-        let length = employees[key].length;
-        let fileName = key.replaceAll(' ', '_') + '_Report.xlsx';
-        let employeeFolderId = await getItem(siteId, yearFolderId, key);
-        await employees[key][length - 1].xlsx.writeFile(`./temp/${fileName}`);
-        await client.api(`sites/${siteId}/drive/items/${employeeFolderId}:/${fileName}:/content`).put(fs.readFileSync(`./temp/${fileName}`, (error, data) => {
-            if (error)
-                console.log(error);
-        }));
+        try {
+            let length = employees[key].length;
+            let fileName = key.replaceAll(' ', '_') + '_Report.xlsx';
+            let employeeFolderId = await getItem(siteId, yearFolderId, key);
+            await employees[key][length - 1].xlsx.writeFile(`./temp/${fileName}`);
+            await client.api(`sites/${siteId}/drive/items/${employeeFolderId}:/${fileName}:/content`).put(fs.readFileSync(`./temp/${fileName}`, (error, data) => {
+                if (error)
+                    console.log(error);
+            }));
+        } catch (error) {
+            console.log(`${JSON.parse(error.body).message}, error with ${key}`)
+        }
     }
 
     console.log('Done!');
 }
 
 main();
+
+function calculateSplitInvoice(contents) {
+    if (contents[11]) {
+        if (contents[11] == 'Split - Top Echelon Office')
+            return contents[8] / contents[9] * .47;
+        else
+            if (role == 'Account Manager')
+                return contents[8] / contents[9] * .5;
+            else
+                return contents[8] / contents[9]
+    } else
+        return contents[8] / contents[9];
+}
 
 function addRow(employee, contents, role) {
 
@@ -340,13 +357,7 @@ function addRow(employee, contents, role) {
 
             // Logic to determine splits
             let splitFee, invoice;
-            if (contents[11]) {
-                if (contents[11] == 'Split - Top Echelon Office')
-                    invoice = contents[8] / contents[9] * .47;
-                else
-                    invoice = contents[8] / contents[9] * .5;
-            } else
-                invoice = contents[8] / contents[9];
+
 
             switch (role) {
                 case 'Account Manager':
@@ -354,6 +365,7 @@ function addRow(employee, contents, role) {
                         splitFee = researcherCommission;
                     else
                         splitFee = employees[employee][0]['Account Manager'];
+                    invoice = calculateSplitInvoice(contents, role)
                     row.push(invoice * 1);
                     row.push(invoice * splitFee);
                     if (employees[employee][0]['Researcher']) {
@@ -363,20 +375,24 @@ function addRow(employee, contents, role) {
                     break;
                 case 'Operations Manager':
                     splitFee = employees[employee][0]['Operations Manager'];
+                    invoice = calculateSplitInvoice(contents, role)
                     row.push(invoice * 1);
                     row.push(invoice * splitFee);
                     break;
                 case 'Researcher':
                     splitFee = employees[employee][0]['Researcher'];
+                    invoice = calculateSplitInvoice(contents, role)
                     row.push(invoice * 1);
                     row.push(0);
-                    if (contents[13] == 'Yes') {
+                    if (contents[13] == 'Yes')
                         row.push(invoice * employees[employee][0]['Researcher']);
-                        row.push(0)
-                    } else {
+                    else
                         row.push(0);
-                        row.push(250);
-                    }
+
+                    if (contents[4].includes('1/') || !contents[4].includes('/'))
+                        row.push(250)
+                    else
+                        row.push(0)
                     break;
                 default:
                     console.log('Error: Invalid role');
