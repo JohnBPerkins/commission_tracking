@@ -1,5 +1,6 @@
 This program automatically generates several billing and commission tracking files for 
-individual employees to view their monthly progress.
+individual employees to view their monthly progress. This build has only been tested
+for Windows 10.
 
 For setup:
 
