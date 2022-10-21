@@ -330,7 +330,7 @@ function calculateSplitInvoice(contents) {
         if (contents[11] == 'Split - Top Echelon Office')
             return contents[8] / contents[9] * .47;
         else
-            if (role == 'Account Manager')
+            if (content[11] == 'Account Manager')
                 return contents[8] / contents[9] * .5;
             else
                 return contents[8] / contents[9]
