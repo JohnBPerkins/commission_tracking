@@ -245,6 +245,8 @@ async function main() {
             let newFile = new Excel.Workbook();
             let fileURL = await client.api(`sites/${siteId}/drive/items/${employeeFileId}?select=id,@microsoft.graph.downloadUrl`).get();
             await downloadFile(fileURL['@microsoft.graph.downloadUrl'], './temp/file.xlsx');
+            // Wait one second
+            await delay(1000);
             await file.xlsx.readFile('./temp/file.xlsx');
 
             let templateBilling = template.getWorksheet('Billing');
@@ -280,8 +282,8 @@ async function main() {
     // This should be done using tables but is too buggy to use
     billingSheet.spliceColumns(3, 2);
     billingSheet.spliceColumns(4, 1);
-    billingSheet.spliceColumns(6, 9);
-    billingSheet.spliceColumns(11, 1);
+    billingSheet.spliceColumns(6, 8);
+    billingSheet.spliceColumns(10, 1);
     billingSheet.spliceColumns(16, 7);
 
     console.log('Filling spreadsheets...')
@@ -306,14 +308,18 @@ async function main() {
 
     console.log('Uploading files...');
     for (let key in employees) {
-        let length = employees[key].length;
-        let fileName = key.replaceAll(' ', '_') + '_Report.xlsx';
-        let employeeFolderId = await getItem(siteId, yearFolderId, key);
-        await employees[key][length - 1].xlsx.writeFile(`./temp/${fileName}`);
-        await client.api(`sites/${siteId}/drive/items/${employeeFolderId}:/${fileName}:/content`).put(fs.readFileSync(`./temp/${fileName}`, (error, data) => {
-            if (error)
-                console.log(error);
-        }));
+        try {
+            let length = employees[key].length;
+            let fileName = key.replaceAll(' ', '_') + '_Report.xlsx';
+            let employeeFolderId = await getItem(siteId, yearFolderId, key);
+            await employees[key][length - 1].xlsx.writeFile(`./temp/${fileName}`);
+            await client.api(`sites/${siteId}/drive/items/${employeeFolderId}:/${fileName}:/content`).put(fs.readFileSync(`./temp/${fileName}`, (error, data) => {
+                if (error)
+                    console.log(error);
+            }));
+        } catch (error) {
+            console.log(`${JSON.parse(error.body).message}, error with ${key}`)
+        }
     }
 
     console.log('Done!');
@@ -321,70 +327,89 @@ async function main() {
 
 main();
 
+function delay(time) {
+    return new Promise(resolve => setTimeout(resolve, time));
+}
+
+function calculateSplitInvoice(contents) {
+    if (contents[11]) {
+        if (contents[11] == 'Split - Top Echelon Office')
+            return contents[8] / contents[9] * .47;
+        else
+            if (contents[11] == 'Account Manager')
+                return contents[8] / contents[9] * .5;
+            else
+                return contents[8] / contents[9]
+    } else
+        return contents[8] / contents[9];
+}
+
 function addRow(employee, contents, role) {
 
-    let date = contents[1].toISOString().split('T')[0];
-    date = date.split('-');
+    if (employees[employee]) {
+        let date = contents[5].toISOString().split('T')[0];
+        date = date.split('-');
 
-    if (date[0] == year) {
-        let length = employees[employee].length;
-        let billingSheet = employees[employee][length - 1].getWorksheet('Billing');
+        if (date[0] == year) {
+            let length = employees[employee].length;
+            let billingSheet = employees[employee][length - 1].getWorksheet('Billing');
 
-        let row = [`${date[1]}/${date[2]}/${date[0]}`];
-        if (contents[15]) // If Invoice number
-            row.push(contents[15]);
-        else
-            row.push(null);
-        row.push(contents[3], contents[4], parseFloat(contents[7]));
+            let row = [`${date[1]}/${date[2]}/${date[0]}`];
+            if (contents[15]) // If Invoice number
+                row.push(contents[15]);
+            else
+                row.push(null);
+            row.push(contents[3], contents[4], parseFloat(contents[8]) / contents[9]);
 
-        // Logic to determine splits
-        let splitFee;
-        switch (role) {
-            case 'Account Manager':
-                if (employees[employee][0]['Researcher'])
-                    splitFee = researcherCommission;
-                else
-                    splitFee = employees[employee][0]['Account Manager'];
-                break;
-            case 'Operations Manager':
-                splitFee = employees[employee][0]['Operations Manager'];
-                break;
-            case 'Researcher':
-                splitFee = employees[employee][0]['Researcher'];
-                break;
-            default:
-                console.log('Error: Invalid role');
-        }
+            // Logic to determine splits
+            let splitFee, invoice;
 
-        let invoice;
-        if (contents[11]) {
-            if (contents[11] == 'Split - Top Echelon Office') {
-                invoice = contents[7] * .47;
-                row.push(invoice);
-                row.push(invoice * splitFee);
-            } else {
-                invoice = contents[7] * .5;
-                row.push(invoice);
-                row.push(invoice * splitFee);
+
+            switch (role) {
+                case 'Account Manager':
+                    if (employees[employee][0]['Researcher'])
+                        splitFee = researcherCommission;
+                    else
+                        splitFee = employees[employee][0]['Account Manager'];
+                    invoice = calculateSplitInvoice(contents, role)
+                    row.push(invoice * 1);
+                    row.push(invoice * splitFee);
+                    if (employees[employee][0]['Researcher']) {
+                        row.push(0);
+                        row.push(0);
+                    }
+                    break;
+                case 'Operations Manager':
+                    splitFee = employees[employee][0]['Operations Manager'];
+                    invoice = calculateSplitInvoice(contents, role)
+                    row.push(invoice * 1);
+                    row.push(invoice * splitFee);
+                    break;
+                case 'Researcher':
+                    splitFee = employees[employee][0]['Researcher'];
+                    invoice = calculateSplitInvoice(contents, role)
+                    row.push(invoice * 1);
+                    row.push(0);
+                    if (contents[13] == 'Yes')
+                        row.push(invoice * employees[employee][0]['Researcher']);
+                    else
+                        row.push(0);
+
+                    if (contents[4].includes('1/') || !contents[4].includes('/'))
+                        row.push(250)
+                    else
+                        row.push(0)
+                    break;
+                default:
+                    console.log('Error: Invalid role');
             }
-        } else {
-            invoice = contents[7];
-            row.push(invoice * 1);
-            row.push(invoice * splitFee);
+
+            if (contents[16]) {
+                row.push(null);
+                row.push(contents[16]);
+            }
+
+            billingSheet.addRow(row);
         }
-
-        if (employees[employee][0]['Researcher']) {
-            if (contents[13] == 'Yes')
-                row.push(invoice * employees[employee][0]['Researcher']);
-            else
-                row.push(0);
-
-            if (contents[12] != 'None')
-                row.push(250);
-            else
-                row.push(0);
-        }
-
-        billingSheet.addRow(row);
     }
 }
