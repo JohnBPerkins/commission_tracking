@@ -245,6 +245,8 @@ async function main() {
             let newFile = new Excel.Workbook();
             let fileURL = await client.api(`sites/${siteId}/drive/items/${employeeFileId}?select=id,@microsoft.graph.downloadUrl`).get();
             await downloadFile(fileURL['@microsoft.graph.downloadUrl'], './temp/file.xlsx');
+            // Wait one second
+            await delay(1000);
             await file.xlsx.readFile('./temp/file.xlsx');
 
             let templateBilling = template.getWorksheet('Billing');
@@ -325,12 +327,16 @@ async function main() {
 
 main();
 
+function delay(time) {
+    return new Promise(resolve => setTimeout(resolve, time));
+}
+
 function calculateSplitInvoice(contents) {
     if (contents[11]) {
         if (contents[11] == 'Split - Top Echelon Office')
             return contents[8] / contents[9] * .47;
         else
-            if (content[11] == 'Account Manager')
+            if (contents[11] == 'Account Manager')
                 return contents[8] / contents[9] * .5;
             else
                 return contents[8] / contents[9]
