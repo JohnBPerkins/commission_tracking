@@ -25,6 +25,8 @@ const monthNames = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
 ]
 
+const test = false;
+
 var employees = {}
 var ops = []
 var researcherCommission
@@ -43,7 +45,6 @@ async function getItem(siteId, itemId, name) {
         }
     } catch (error) {
         console.log(error)
-        console.log('test')
     }
 }
 
@@ -63,16 +64,17 @@ async function readConfig() {
             if (!employees[contents[0]]) {
                 if (contents[2] == null)
                     contents[2] = 0
-                employees[contents[0]] = [{ [contents[4]]: contents[1] }, contents[2], contents[3], contents[5].text]
+                employees[contents[0]] = [{ [contents[4]]: contents[1] }, contents[2], contents[3], contents[5]?.text || ""]
                 if (contents[4] == 'Account Manager' && contents[6] != null)
-                    employees[contents[0]].push(contents[6], contents[7], contents[8])
+                    employees[contents[0]].push(contents[6], contents[7], contents[8], contents[9])
+                else if (contents[4] == 'Researcher')
+                    employees[contents[0]].push(contents[9])
             } else {
                 employees[contents[0]][0][contents[4]] = contents[1]
                 if (contents[4] == 'Account Manager' && contents[6] != null)
-                    employees[contents[0]].push(contents[6], contents[7], contents[8])
+                    employees[contents[0]].push(contents[6], contents[7], contents[8], contents[9])
             }
-        } else
-            researcherCommission = row.getCell(13).value
+        }
     })
 }
 
@@ -289,6 +291,7 @@ async function main() {
     console.log('Filling spreadsheets...')
     billingSheet.eachRow(function (row, rowNumber) {
         // Process all of the billing files
+        // console.log(row.values)
         if (rowNumber != 1) {
             let contents = row.values
             contents.shift()
@@ -313,12 +316,24 @@ async function main() {
             let fileName = key.replaceAll(' ', '_') + '_Report.xlsx'
             let employeeFolderId = await getItem(siteId, yearFolderId, key)
             await employees[key][length - 1].xlsx.writeFile(`./temp/${fileName}`)
-            await client.api(`sites/${siteId}/drive/items/${employeeFolderId}:/${fileName}:/content`).put(fs.readFileSync(`./temp/${fileName}`, (error, data) => {
-                if (error)
-                    console.log(error)
-            }))
+            if (!test) {
+                await client.api(`sites/${siteId}/drive/items/${employeeFolderId}:/${fileName}:/content`).put(fs.readFileSync(`./temp/${fileName}`, (error, data) => {
+                    if (error)
+                        console.log(error)
+                }))
+            }
         } catch (error) {
-            console.log(`${JSON.parse(error.body).message}, error with ${key}\n`)
+            // Check if error.body exists and parse it
+            if (error.body) {
+                try {
+                    let errorMessage = JSON.parse(error.body).message;
+                    console.log(`${errorMessage}, error with ${key}\n`);
+                } catch (parseError) {
+                    console.log(`Failed to parse error.body: ${error.body}, error with ${key}\n`);
+                }
+            } else {
+                console.log(`Unexpected error: ${error}, error with ${key}\n`);
+            }
         }
     }
 
@@ -364,38 +379,71 @@ function addRow(employee, contents, role) {
 
             switch (role) {
                 case 'Account Manager':
-                    if (employees[employee][0]['Researcher'])
-                        splitFee = researcherCommission
-                    else
-                        splitFee = employees[employee][0]['Account Manager']
+                    splitFee = employees[employee][0]['Account Manager']
                     invoice = calculateSplitInvoice(contents, role)
-                    row.push(invoice * 1)
-                    row.push(invoice * splitFee)
+
+                    if (contents[13] == 'Yes' && contents[12] != 'None') { // Subtract researcher commission
+                        let fee = ((contents[6] / contents[9]) * employees[contents[12]][0]['Researcher'])
+                        row.push(row[4] - fee)
+                        // remove researcher bonus
+                    } else if (contents[12] != 'None' && (contents[4].includes('1/') || !contents[4].includes('/'))) {
+                        let fee = employees[contents[12]][1]
+                        row.push(row[4] - fee)
+                    } else
+                        row.push(row[4])
+
+                    row.push(row[5] * employees[employee][0]['Account Manager'])
+
                     if (employees[employee][0]['Researcher']) {
                         row.push(0)
                         row.push(0)
                     }
                     break
                 case 'Operations Manager':
+                    // splitFee = employees[employee][0]['Operations Manager']
+                    // invoice = calculateSplitInvoice(contents, role)
+
+                    // if (contents[13] == 'Yes' && contents[12] != 'None') { // Subtract researcher commission
+                    //     let fee = ((contents[6] / contents[9]) * employees[contents[12]][0]['Researcher'])
+                    //     row.push(row[4] - fee)
+                    //     // remove researcher bonus
+                    // } else if (contents[12] != 'None' && (contents[4].includes('1/') || !contents[4].includes('/'))) {
+                    //     let fee = employees[contents[12]][1]
+                    //     row.push(row[4] - fee)
+                    // } else
+                    //     row.push(row[4])
+
+                    // row.push(row[5] * employees[employee][0]['Operations Manager'])
+
                     splitFee = employees[employee][0]['Operations Manager']
                     invoice = calculateSplitInvoice(contents, role)
                     row.push(invoice * 1)
                     row.push(invoice * splitFee)
+
                     break
                 case 'Researcher':
                     let add = false
                     splitFee = employees[employee][0]['Researcher']
                     invoice = calculateSplitInvoice(contents, role)
-                    row.push(invoice * 1)
-                    row.push(0)
-                    if (contents[13] == 'Yes') {
-                        row.push(invoice * employees[employee][0]['Researcher'])
-                        add = true
-                    } else
-                        row.push(0)
 
-                    if (contents[4].includes('1/') || !contents[4].includes('/')) {
-                        row.push(250)
+                    if (employees[employee][4]) // If RPO
+                        row.push(contents[6] / contents[9]) // Salary
+                    else
+                        row.push(invoice * 1)
+
+                    row.push(0)
+
+                    let bonus = false;
+                    if (contents[13] == 'Yes') {
+                        row.push(row[5] * employees[employee][0]['Researcher'])
+                        add = true
+                    } else {
+                        row.push(0)
+                        bonus = true;
+                    }
+
+                    if ((contents[4].includes('1/') || !contents[4].includes('/')) && bonus) {
+                        row.push(employees[employee][1])
                         add = true
                     } else
                         row.push(0)
